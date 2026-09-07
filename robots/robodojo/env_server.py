@@ -68,11 +68,7 @@ LOW_MEMORY_RENDER = {
     "antialiasing_mode": "FXAA",
     "dlss_mode": 0,
     "rendering_mode": "performance",
-    "carb_settings": {
-        "/rtx-transient/resourcemanager/enableTextureStreaming": True,
-        "/rtx-transient/resourcemanager/texturestreaming/memoryBudget": 0.03,
-        "/rtx/sceneDb/allowDuplicateAhsInvocation": False,
-    },
+    "carb_settings": None,
 }
 
 _EE_PARTS = (
