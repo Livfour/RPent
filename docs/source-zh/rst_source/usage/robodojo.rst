@@ -109,6 +109,8 @@ RoboDojo 自身的奖励检查（``episode_status.eval_success``）是任务成�
 
 - ``--robodojo-root`` 与 ``--robodojo-python`` 覆盖 ``ROBODOJO_ROOT`` 和
   ``ROBODOJO_PYTHON``。
-- ``--render-scale`` 缩小所有相机分辨率以节省显存。
+- ``--render-scale`` 缩小所有相机分辨率以节省显存；``--low-memory-render``
+  （或 ``ROBODOJO_LOW_MEMORY_RENDER=1``）切换到性能渲染模式并限制纹理显存，
+  适合共享 GPU。
 - ``--env-endpoint`` 连接已运行的 env server 而不是重新启动。
 - ``--env-cuda-device`` 选择 Isaac Sim 渲染使用的 GPU（物理在 CPU 上运行）。

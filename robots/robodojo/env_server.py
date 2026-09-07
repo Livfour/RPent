@@ -58,6 +58,23 @@ logger = get_logger("robodojo_env_server")
 
 KIT_ARGS = "--enable isaacsim.replicator.behavior --enable isaacsim.sensors.camera"
 
+#: RoboDojo's default renderer ("quality", DLAA, GI, reflections) needs several
+#: gigabytes of VRAM for a textured scene; this profile fits next to other GPU
+#: tenants at the cost of image fidelity.
+LOW_MEMORY_RENDER = {
+    "enable_translucency": False,
+    "enable_reflections": False,
+    "enable_global_illumination": False,
+    "antialiasing_mode": "FXAA",
+    "dlss_mode": 0,
+    "rendering_mode": "performance",
+    "carb_settings": {
+        "/rtx-transient/resourcemanager/enableTextureStreaming": True,
+        "/rtx-transient/resourcemanager/texturestreaming/memoryBudget": 0.03,
+        "/rtx/sceneDb/allowDuplicateAhsInvocation": False,
+    },
+}
+
 _EE_PARTS = (
     "left_ee_pose",
     "left_ee_joint_state",
@@ -268,6 +285,7 @@ def build_env(
     task_name: str,
     layout_group: int,
     render_scale: float,
+    low_memory_render: bool = False,
 ) -> Any:
     """Mirror ``src/eval_client/main.py`` config assembly for one env."""
     patch_isaac45_semantics()
@@ -343,6 +361,8 @@ def build_env(
         }
     )
     OmegaConf.update(cfg, "sim.scene.num_envs", 1, force_add=True)
+    if low_memory_render:
+        OmegaConf.update(cfg, "sim.render", LOW_MEMORY_RENDER, force_add=True)
     cfg = process_randomization(cfg)
     cfg, eval_num = process_config(cfg, task_name=task_name)
     eval_cfg["eval_num"] = int(eval_num)
@@ -667,6 +687,11 @@ def main() -> None:
     parser.add_argument("--layout-id", type=int, default=0)
     parser.add_argument("--max-episode-steps", type=int, default=0)
     parser.add_argument("--render-scale", type=float, default=1.0)
+    parser.add_argument(
+        "--low-memory-render",
+        action="store_true",
+        help="Use the performance renderer with a small texture budget.",
+    )
     parser.add_argument("--transport", choices=["socket", "http"], default="http")
     parser.add_argument("--host", default="127.0.0.1")
     parser.add_argument("--port", type=int, default=0)
@@ -683,6 +708,7 @@ def main() -> None:
         task_name=args.task_name,
         layout_group=args.layout_group,
         render_scale=args.render_scale,
+        low_memory_render=args.low_memory_render,
     )
     facade = RoboDojoEnvFacade(
         env,

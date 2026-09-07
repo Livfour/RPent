@@ -243,6 +243,16 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
         default=float(os.environ.get("ROBODOJO_RENDER_SCALE", "1.0")),
         help="Scale applied to every camera resolution in (0, 1].",
     )
+    parser.add_argument(
+        "--low-memory-render",
+        action="store_true",
+        default=os.environ.get("ROBODOJO_LOW_MEMORY_RENDER", "").lower()
+        in {"1", "true", "yes"},
+        help=(
+            "Render with Isaac's performance mode and a small texture budget so "
+            "the simulator fits a shared GPU. Defaults to ROBODOJO_LOW_MEMORY_RENDER."
+        ),
+    )
     parser.add_argument("--env-endpoint", default=None)
     parser.add_argument(
         "--vla-endpoint",
@@ -309,6 +319,8 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
             "env_cuda_device": env_cuda_device,
             "vla_cuda_device": vla_cuda_device,
             "vla_endpoint": args.vla_endpoint,
+            "render_scale": float(args.render_scale),
+            "low_memory_render": bool(args.low_memory_render),
         },
     )
 
@@ -459,6 +471,7 @@ def _spawn_env_server(
             str(int(args.max_episode_steps)),
             "--render-scale",
             str(float(args.render_scale)),
+            *(["--low-memory-render"] if args.low_memory_render else []),
             "--transport",
             "http",
             "--host",

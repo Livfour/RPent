@@ -118,7 +118,9 @@ Common options
 
 - ``--robodojo-root`` and ``--robodojo-python`` override ``ROBODOJO_ROOT``
   and ``ROBODOJO_PYTHON``.
-- ``--render-scale`` shrinks every camera to save GPU memory.
+- ``--render-scale`` shrinks every camera to save GPU memory;
+  ``--low-memory-render`` (or ``ROBODOJO_LOW_MEMORY_RENDER=1``) switches to
+  the performance renderer with a small texture budget for shared GPUs.
 - ``--env-endpoint`` connects to an already running env server instead of
   spawning one.
 - ``--env-cuda-device`` selects the GPU for Isaac Sim rendering (physics runs
