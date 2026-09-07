@@ -156,6 +156,31 @@ def patch_isaac45_modules() -> None:
             )
 
 
+def patch_lean_curobo_planner() -> None:
+    """Keep only the cuRobo IK solver RPent's end-effector actions need.
+
+    RoboDojo's ``CuroboPlanner`` also warms up single and batch motion
+    planners with CUDA graphs, which costs gigabytes of GPU memory; RPent
+    interpolates end-effector poses itself and only calls ``solve_ik``.
+    """
+    from env.planner_manager import curobo_planner as module
+
+    class _NoBatchMotionPlanner:
+        def __init__(self, *_: Any, **__: Any) -> None:
+            pass
+
+        def warmup(self, *_: Any, **__: Any) -> None:
+            return None
+
+        def destroy(self) -> None:
+            return None
+
+    module.BatchMotionPlanner = _NoBatchMotionPlanner
+    module.MotionPlanner.warmup = lambda self, *args, **kwargs: None
+    module.CuroboPlanner._build_batch_pad_templates = lambda self: None
+    module.CuroboPlanner._prewarm_alternate_modes = lambda self: None
+
+
 def launch_isaac_app(root: Path) -> Any:
     """Boot Kit against the RoboDojo checkout and return the running app."""
     for import_root in (root / "XPolicyLab", root):
@@ -227,6 +252,7 @@ def build_env(
     patch_isaac45_semantics()
     patch_isaac45_modules()
     bind_robodojo_utils(root)
+    patch_lean_curobo_planner()
     import src.eval_client.eval_env as eval_env_module
     from env.camera_manager import camera_manager as camera_manager_module
     from env.global_configs import BENCHMARK, ENV_CONFIG_PATH, ROOT_DIR

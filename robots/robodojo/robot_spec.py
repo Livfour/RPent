@@ -474,6 +474,9 @@ def _spawn_env_server(
             "ACCEPT_EULA": "Y",
             "PRIVACY_CONSENT": "Y",
             "ROBODOJO_ROOT": str(root),
+            # Isaac Sim plus cuRobo share a small memory budget next to other
+            # GPU tenants; avoid caching-allocator fragmentation.
+            "PYTORCH_CUDA_ALLOC_CONF": "expandable_segments:True",
             **(
                 {"CUDA_VISIBLE_DEVICES": env_cuda_device}
                 if env_cuda_device is not None
