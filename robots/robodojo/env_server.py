@@ -154,6 +154,12 @@ def patch_isaac45_modules() -> None:
             sys.modules[public] = importlib.import_module(
                 f"isaacsim.core.prims.impl._impl.{name}"
             )
+    # Isaac 5.x cameras expose a lens-distortion model; RoboDojo only ever
+    # selects "pinhole", which is the 4.5 default.
+    from isaacsim.sensors.camera import Camera
+
+    if not hasattr(Camera, "set_lens_distortion_model"):
+        Camera.set_lens_distortion_model = lambda self, model: None
 
 
 def patch_lean_curobo_planner() -> None:
