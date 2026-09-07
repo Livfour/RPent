@@ -136,6 +136,26 @@ def patch_isaac45_semantics() -> None:
         semantics.remove_labels = remove_labels
 
 
+def patch_isaac45_modules() -> None:
+    """Alias Isaac Sim 5.x module paths RoboDojo imports onto the 4.5 layout.
+
+    Isaac Sim 4.5 keeps ``_SinglePrimWrapper`` under
+    ``isaacsim.core.prims.impl._impl``; 5.x exposes it one level up.
+    """
+    import importlib
+
+    for name in ("single_prim_wrapper",):
+        public = f"isaacsim.core.prims.impl.{name}"
+        if public in sys.modules:
+            continue
+        try:
+            importlib.import_module(public)
+        except ModuleNotFoundError:
+            sys.modules[public] = importlib.import_module(
+                f"isaacsim.core.prims.impl._impl.{name}"
+            )
+
+
 def launch_isaac_app(root: Path) -> Any:
     """Boot Kit against the RoboDojo checkout and return the running app."""
     for import_root in (root / "XPolicyLab", root):
@@ -194,6 +214,7 @@ def build_env(
 ) -> Any:
     """Mirror ``src/eval_client/main.py`` config assembly for one env."""
     patch_isaac45_semantics()
+    patch_isaac45_modules()
     bind_robodojo_utils(root)
     import src.eval_client.eval_env as eval_env_module
     from env.camera_manager import camera_manager as camera_manager_module
