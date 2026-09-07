@@ -165,9 +165,20 @@ def launch_isaac_app(root: Path) -> Any:
         sys.path.insert(0, path)
     # RoboDojo resolves eval_result/ and its Assets/ relative to the checkout.
     os.chdir(root)
+    # Kit bundles an older ``warp`` (1.5 on Isaac 4.5) that would shadow the
+    # pip warp cuRobo's kernels need; importing it first pins the pip version.
+    import warp
+
+    pip_warp = warp.__version__
     from isaaclab.app import AppLauncher
 
     launcher = AppLauncher(headless=True, enable_cameras=True, kit_args=KIT_ARGS)
+    if warp.__version__ != pip_warp:
+        raise RuntimeError(
+            f"Kit replaced warp {pip_warp} with {warp.__version__}; cuRobo needs "
+            "the pip version"
+        )
+    logger.info("Isaac Sim booted with warp %s", pip_warp)
     return launcher.app
 
 
