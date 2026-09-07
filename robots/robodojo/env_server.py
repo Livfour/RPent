@@ -160,14 +160,18 @@ def patch_isaac45_modules() -> None:
 
     if not hasattr(Camera, "set_lens_distortion_model"):
         Camera.set_lens_distortion_model = lambda self, model: None
-    # Isaac 5.x aperture setters take a trailing ``maintain_fov`` flag.
-    for setter_name in ("set_horizontal_aperture", "set_vertical_aperture"):
-        setter = getattr(Camera, setter_name)
-        if getattr(setter, "_rpent_lenient", False):
+    # Isaac 5.x aperture setters take a trailing ``maintain_fov`` flag and work
+    # before the render product exists; 4.5 recomputes the FOV from the render
+    # product, which RoboDojo has not created yet. Write the USD attribute.
+    for setter_name, attribute in (
+        ("set_horizontal_aperture", "horizontalAperture"),
+        ("set_vertical_aperture", "verticalAperture"),
+    ):
+        if getattr(getattr(Camera, setter_name), "_rpent_lenient", False):
             continue
 
-        def lenient(self: Any, value: float, *_: Any, _setter: Any = setter) -> None:
-            _setter(self, value)
+        def lenient(self: Any, value: float, *_: Any, _attr: str = attribute) -> None:
+            self.prim.GetAttribute(_attr).Set(float(value))
 
         lenient._rpent_lenient = True  # type: ignore[attr-defined]
         setattr(Camera, setter_name, lenient)
