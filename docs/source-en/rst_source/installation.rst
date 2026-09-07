@@ -35,6 +35,7 @@ Other environment configurations are available when needed:
 
    pip install -e ".[robocasa]"    # RoboCasa
    pip install -e ".[robotwin]"    # RoboTwin
+   pip install -e ".[robodojo]"    # RoboDojo
 
 ``.[libero-pro]`` is the recommended default.
 
@@ -56,6 +57,9 @@ Available extras:
    * - ``.[robotwin]``
      - RoboTwin simulation and LingBot inference dependencies;
        see :doc:`usage/robotwin`
+   * - ``.[robodojo]``
+     - RoboDojo client-side dependencies; the Isaac Sim simulator lives in
+       RoboDojo's own environment, see :doc:`usage/robodojo`
    * - ``.[rlinf]``
      - RLinf runtime only
    * - ``.[sam3]``

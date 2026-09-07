@@ -42,6 +42,7 @@ RPent 可以通过一条 ``pip install`` 命令完成安装，并提供多种可
 
    pip install -e ".[robocasa]"    # RoboCasa
    pip install -e ".[robotwin]"    # RoboTwin
+   pip install -e ".[robodojo]"    # RoboDojo
 
 ``.[libero-pro]`` 是默认推荐的依赖组合。
 
@@ -62,6 +63,8 @@ RPent 可以通过一条 ``pip install`` 命令完成安装，并提供多种可
      - RoboCasa365 仿真器 + RLDX-1 VLA，详见 :doc:`usage/robocasa`
    * - ``.[robotwin]``
      - RoboTwin 仿真环境和 LingBot 推理所需依赖，详见 :doc:`usage/robotwin`
+   * - ``.[robodojo]``
+     - RoboDojo 客户端依赖；Isaac Sim 仿真器位于 RoboDojo 自身环境中，详见 :doc:`usage/robodojo`
    * - ``.[rlinf]``
      - 仅 RLinf 运行时
    * - ``.[sam3]``

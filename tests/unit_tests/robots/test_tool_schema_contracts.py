@@ -18,11 +18,13 @@ import pytest
 
 from robots.libero import tools as libero_tools
 from robots.robocasa import tools as robocasa_tools
+from robots.robodojo import tools as robodojo_tools
 from robots.robotwin import tools as robotwin_tools
 
 ROBOT_SCHEMAS = {
     "libero": libero_tools.TOOLS_SPEC,
     "robocasa": robocasa_tools.TOOLS_SPEC,
+    "robodojo": robodojo_tools.TOOLS_SPEC,
     "robotwin": robotwin_tools.TOOLS_SPEC,
 }
 
@@ -59,6 +61,19 @@ EXPECTED_TOOL_NAMES = {
         "back_project",
         "back_project_batch",
         "query_world_map",
+        "finish",
+    },
+    "robodojo": {
+        "view_env_state",
+        "render",
+        "sample_world_xyz",
+        "query_world_map",
+        "vla_act",
+        "move_to",
+        "move_delta",
+        "rotate_wrist",
+        "set_gripper",
+        "release",
         "finish",
     },
     "robotwin": {
@@ -104,6 +119,7 @@ def test_robot_action_schemas_keep_bounded_vector_shapes() -> None:
     schema_sets = [
         {spec["name"]: spec for spec in libero_tools.TOOLS_SPEC}["move_to"],
         {spec["name"]: spec for spec in robotwin_tools.TOOLS_SPEC}["move_to"],
+        {spec["name"]: spec for spec in robodojo_tools.TOOLS_SPEC}["move_to"],
     ]
     for spec in schema_sets:
         xyz = spec["input_schema"]["properties"]["xyz"]

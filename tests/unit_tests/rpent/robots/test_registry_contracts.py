@@ -29,7 +29,7 @@ from robots.robotwin.robot_spec import (
 from rpent.robots import enumerate_robots, get_robot_spec
 from rpent.robots.robot_spec import RobotSpec, RunConfig
 
-EXPECTED_ROBOTS = ("libero", "robocasa", "robotwin")
+EXPECTED_ROBOTS = ("libero", "robocasa", "robodojo", "robotwin")
 
 PROMPT_VARIABLES = {
     "libero": {
@@ -52,6 +52,16 @@ PROMPT_VARIABLES = {
         "seed": 3,
         "recipe_tag": "OpenDrawer_target_s3",
         "memory_dir": "/memory",
+        "output_dir": Path("/output"),
+    },
+    "robodojo": {
+        "task_name": "general_pickup",
+        "layout_id": 2,
+        "layout_group": 0,
+        "instruction": "Pick up the mug by 10 cm.",
+        "memory_dir": "/memory",
+        "reference_tag": "general_pickup_l0",
+        "vla_available": False,
         "output_dir": Path("/output"),
     },
     "robotwin": {

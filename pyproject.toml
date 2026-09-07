@@ -100,6 +100,11 @@ robocasa = [
     "rlinf-rldx>=1.0.1.post10",
     "robosuite @ git+https://github.com/RLinf/robosuite.git@rpent",
 ]
+robodojo = [
+    # The Isaac Sim simulator runs in RoboDojo's own pixi environment
+    # (ROBODOJO_PYTHON); RPent only needs an mp4 encoder client-side.
+    "imageio-ffmpeg>=0.5",
+]
 robotwin = [
     # TODO: replace fixed owner-controlled revisions with released versions.
     "rpent[rlinf]",
