@@ -160,6 +160,17 @@ def patch_isaac45_modules() -> None:
 
     if not hasattr(Camera, "set_lens_distortion_model"):
         Camera.set_lens_distortion_model = lambda self, model: None
+    # Isaac 5.x aperture setters take a trailing ``maintain_fov`` flag.
+    for setter_name in ("set_horizontal_aperture", "set_vertical_aperture"):
+        setter = getattr(Camera, setter_name)
+        if getattr(setter, "_rpent_lenient", False):
+            continue
+
+        def lenient(self: Any, value: float, *_: Any, _setter: Any = setter) -> None:
+            _setter(self, value)
+
+        lenient._rpent_lenient = True  # type: ignore[attr-defined]
+        setattr(Camera, setter_name, lenient)
 
 
 def patch_lean_curobo_planner() -> None:
