@@ -190,6 +190,76 @@ def patch_isaac45_modules() -> None:
         setattr(Camera, setter_name, lenient)
 
 
+def capture_reward_baseline(env) -> None:
+    """Record the post-reset state the reward predicates compare against.
+
+    RPent drives ``TaskEnv`` directly, but the baseline is captured by
+    RoboDojo's own eval wrapper (``src/eval_client/eval_env.py``), not by
+    ``TaskEnv.reset``. Without it ``func_parser.pre_state`` stays empty and the
+    reward manager also trips over the per-env ``success`` flags the wrapper
+    owns, so a lift or move check reports success at step 0 with no action.
+    """
+    if not hasattr(env, "success"):
+        env.success = [True] * getattr(env, "num_envs", 1)
+    robot_manager = getattr(env, "robot_manager", None)
+    if robot_manager is not None:
+        robot_manager.set_origin_endpose()
+        robot_manager.set_robot_init_state()
+    reward_manager = getattr(env, "reward_manager", None)
+    if reward_manager is not None:
+        reward_manager.init_state()
+
+
+def evaluate_registered_checks(env) -> None:
+    """Evaluate the reward predicates that ``run_reward`` only registered.
+
+    ``reward_manager.check`` appends a check stage; the stage is scored, and
+    popped when satisfied, by ``reward_manager.step``. RoboDojo's eval wrapper
+    calls that after every action (``src/eval_client/eval_env.py``), so without
+    it the stages are never evaluated and the episode can never complete.
+    """
+    reward_manager = getattr(env, "reward_manager", None)
+    if reward_manager is None:
+        return
+    reward_manager.step(env_idx_list=[0])
+
+
+def stage_published_layout(env, layout_id: int) -> None:
+    """Hand the published eval layout to the layout manager before the reset.
+
+    RoboDojo's eval wrapper sets the saved layout before resetting
+    (``src/eval_client/eval_env.py``); ``TaskEnv.reset`` only rebuilds the
+    scene and reseeds the RNG, so without this there is no saved layout for
+    ``apply_published_layout`` to place.
+    """
+    scene_manager = getattr(env, "scene_manager", None)
+    seed_manager = getattr(env, "seed_manager", None)
+    if scene_manager is None or seed_manager is None:
+        return
+    layout_manager = getattr(scene_manager, "layout_manager", None)
+    if layout_manager is None:
+        return
+    layout_manager.set_saved_layout(0, seed_manager.get_seed_scene_info(layout_id))
+
+
+def apply_published_layout(env) -> None:
+    """Place every scene object at the pose its eval layout publishes.
+
+    ``reload_scene`` rebuilds the scene and reseeds, but only
+    ``scene_manager.apply_saved_poses`` moves the table and objects onto their
+    published poses, which RoboDojo's eval wrapper does after every reset.
+    Without it the episode runs against an unposed scene, where the task's
+    objects can sit outside the arms' reach or be missing from the camera view.
+    """
+    scene_manager = getattr(env, "scene_manager", None)
+    if scene_manager is None:
+        return
+    obs_manager = getattr(env, "obs_manager", None)
+    if obs_manager is not None:
+        obs_manager.reset()
+    scene_manager.apply_saved_poses(env_idx_list=[0])
+
+
 def patch_lean_curobo_planner() -> None:
     """Keep only the cuRobo IK solver RPent's end-effector actions need.
 
@@ -474,14 +544,24 @@ class RoboDojoEnvFacade(MainThreadServeMixin, BaseEnvFacade):
 
     def _episode_status(self) -> dict[str, Any]:
         env = self._env
-        success = bool(env.success[0]) if getattr(env, "success", None) else False
+        # `env.success` is RoboDojo's per-env "not failed" gate: it is reset to
+        # True for every episode and only cleared when a failure predicate
+        # trips, so it is not a completion signal. Completion is the reward,
+        # which is 1.0 only once every registered check stage is satisfied
+        # (and which already returns 0.0 for an env whose gate is cleared).
         done = bool(env.end_flag[0]) if getattr(env, "end_flag", None) else False
-        score = 1.0 if success else 0.0
-        if not success and hasattr(env, "reward_manager"):
+        success = False
+        score = 0.0
+        reward_manager = getattr(env, "reward_manager", None)
+        if reward_manager is not None:
             try:
-                score = float(env.reward_manager.get_score()[0]) / 100.0
+                success = float(reward_manager.get_reward(final_check=False)[0]) >= 1.0
             except Exception:
-                score = 0.0
+                success = False
+            try:
+                score = float(reward_manager.get_score()[0]) / 100.0
+            except Exception:
+                score = 1.0 if success else 0.0
         return {
             "eval_success": success,
             "done": done,
@@ -537,8 +617,11 @@ class RoboDojoEnvFacade(MainThreadServeMixin, BaseEnvFacade):
                 f"layout_id {self._layout_id} outside the {total} published layouts"
             )
         started = time.monotonic()
+        stage_published_layout(env, self._layout_id)
         env.reset(seed=[self._layout_id])
         ensure_physx_render_sync(env)
+        apply_published_layout(env)
+        capture_reward_baseline(env)
         env.run_reward()
         if hasattr(env, "get_score"):
             env.get_score()
@@ -559,6 +642,7 @@ class RoboDojoEnvFacade(MainThreadServeMixin, BaseEnvFacade):
 
     def _take_one(self, action: np.ndarray, action_type: RoboDojoActionType) -> bool:
         self._env.take_action(_unflatten(action, action_type))
+        evaluate_registered_checks(self._env)
         return bool(self._env.is_episode_end())
 
     def step(
