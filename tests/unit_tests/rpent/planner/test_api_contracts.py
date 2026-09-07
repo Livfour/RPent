@@ -32,7 +32,9 @@ from pydantic_ai.usage import RequestUsage
 
 from rpent.dashboard.events import TranscriptEvent, UsageEvent
 from rpent.planner.api_loop import (
+    EXTRA_BODY_ENV,
     ApiAgentLoop,
+    _build_model_settings,
     _build_tools,
     _content_blocks_to_pydantic,
     _make_tool_function,
@@ -297,3 +299,24 @@ def test_no_images_mode_suppresses_binary_tool_content() -> None:
     assert isinstance(multimodal.content[0], BinaryContent)
     assert text_only == '{\n  "value": "visible"\n}'
     assert "secret" not in text_only
+
+
+def test_extra_body_env_reaches_non_anthropic_model_settings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    model = FunctionModel(lambda messages, info: None)
+    monkeypatch.delenv(EXTRA_BODY_ENV, raising=False)
+    assert "extra_body" not in _build_model_settings(model, 16)
+
+    monkeypatch.setenv(
+        EXTRA_BODY_ENV, '{"chat_template_kwargs": {"enable_thinking": false}}'
+    )
+    settings = _build_model_settings(model, 16)
+    assert settings["max_tokens"] == 16
+    assert settings["extra_body"] == {
+        "chat_template_kwargs": {"enable_thinking": False}
+    }
+
+    monkeypatch.setenv(EXTRA_BODY_ENV, "[1, 2]")
+    with pytest.raises(ValueError, match="JSON object"):
+        _build_model_settings(model, 16)

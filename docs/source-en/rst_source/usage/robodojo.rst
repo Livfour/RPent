@@ -79,7 +79,10 @@ option list.
 
 The planner example above targets an OpenAI-compatible endpoint (for
 instance a local vLLM serving Qwen); set ``OPENAI_API_KEY`` to the endpoint's
-key. Any provider supported by :doc:`configure_planner` works.
+key. Any provider supported by :doc:`configure_planner` works. For a
+vLLM-served Qwen model, disable thinking in agent loops by exporting
+``RPENT_API_EXTRA_BODY='{"chat_template_kwargs": {"enable_thinking": false}}'``;
+the JSON object is merged into every planner request body.
 
 View the result
 ---------------

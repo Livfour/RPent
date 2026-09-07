@@ -74,7 +74,9 @@ Isaac 环境安装任何 RPent 依赖。
 
 上面的规划器示例指向一个 OpenAI 兼容端点（例如本地 vLLM 部署的 Qwen），
 将 ``OPENAI_API_KEY`` 设为该端点的密钥。:doc:`configure_planner` 支持的任意
-提供方都可以使用。
+提供方都可以使用。对于 vLLM 部署的 Qwen 模型，可导出
+``RPENT_API_EXTRA_BODY='{"chat_template_kwargs": {"enable_thinking": false}}'``
+在 agent 循环中关闭思考；该 JSON 对象会合并进每个规划器请求体。
 
 查看结果
 --------

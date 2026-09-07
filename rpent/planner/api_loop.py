@@ -27,6 +27,7 @@ import base64
 import contextlib
 import dataclasses
 import json
+import os
 import queue
 from collections import deque
 from collections.abc import Callable
@@ -624,6 +625,25 @@ class _ApiDashboardSession:
                     await self._control.tool_completed(self)
 
 
+#: JSON object merged into every request body of the ``api`` planner, for
+#: provider-specific switches such as vLLM's
+#: ``{"chat_template_kwargs": {"enable_thinking": false}}`` on Qwen models.
+EXTRA_BODY_ENV = "RPENT_API_EXTRA_BODY"
+
+
+def _extra_body_from_env() -> dict[str, Any] | None:
+    raw = os.environ.get(EXTRA_BODY_ENV, "").strip()
+    if not raw:
+        return None
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{EXTRA_BODY_ENV} must be a JSON object: {exc}") from exc
+    if not isinstance(value, dict):
+        raise ValueError(f"{EXTRA_BODY_ENV} must be a JSON object")
+    return value
+
+
 def _build_model_settings(model: Model, max_tokens: int) -> ModelSettings:
     """Build model settings, enabling prompt caching for Anthropic models."""
     from pydantic_ai.models.anthropic import AnthropicModel, AnthropicModelSettings
@@ -635,7 +655,11 @@ def _build_model_settings(model: Model, max_tokens: int) -> ModelSettings:
             anthropic_cache_tool_definitions=True,
             anthropic_cache_messages=True,
         )
-    return ModelSettings(max_tokens=max_tokens)
+    settings = ModelSettings(max_tokens=max_tokens)
+    extra_body = _extra_body_from_env()
+    if extra_body:
+        settings["extra_body"] = extra_body
+    return settings
 
 
 def _prune_history_images(messages: list[ModelMessage]) -> list[ModelMessage]:
