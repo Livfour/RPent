@@ -644,11 +644,9 @@ class RoboDojoEnvFacade(MainThreadServeMixin, BaseEnvFacade):
 
     def reset(self) -> tuple[dict[str, Any], dict[str, Any]]:
         env = self._env
-        if self._episode_started:
-            raise RuntimeError(
-                "RoboDojo runs one episode per env server; restart the server "
-                "for a fresh layout"
-            )
+        # RSI continuation sessions intentionally reset the same published
+        # layout. The underlying EvalEnv reset restores counters, rewards, and
+        # object poses; keep this guard only as an initialization marker.
         total = len(env.seed_manager.seed_list)
         if not 0 <= self._layout_id < total:
             raise ValueError(
