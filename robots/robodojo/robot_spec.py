@@ -197,6 +197,12 @@ def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
         help="Expose RGB, language, and robot state without metric perception tools.",
     )
     parser.add_argument(
+        "--rsi-sessions",
+        type=int,
+        default=1,
+        help="Number of fresh planner contexts to try after failures.",
+    )
+    parser.add_argument(
         "--task-name",
         required=required,
         help="RoboDojo task module name, e.g. general_pickup or stack_bowls.",

@@ -419,8 +419,11 @@ def main() -> int:
         if first_user_msg is None:
             logger.info("no task entered; ending session before start.")
     # Exploration may hand off between independent planner contexts.
-    sessions = max(1, int(getattr(args, "explore_sessions", 1) or 1))
-    if not getattr(args, "explore", False):
+    session_limit = getattr(args, "explore_sessions", None)
+    if robot_name == "robodojo":
+        session_limit = getattr(args, "rsi_sessions", 1)
+    sessions = max(1, int(session_limit or 1))
+    if not getattr(args, "explore", False) and robot_name != "robodojo":
         sessions = 1
     recipe_path = ""
     solved = False
