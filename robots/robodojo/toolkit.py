@@ -105,6 +105,7 @@ class RoboDojoToolkit(Toolkit):
         primitives_kwargs: dict[str, Any],
         dashboard_events: DashboardEventSink,
         memory: MemoryManager,
+        perception_only: bool = False,
     ):
         state = EnvState(get_output_dir())
         super().__init__(
@@ -113,6 +114,7 @@ class RoboDojoToolkit(Toolkit):
             memory=memory,
         )
         self._latest_status: dict[str, Any] = {}
+        self._perception_only = perception_only
         self._primitives = RoboDojoPrimitives(
             check_cancelled=self.raise_if_cancelled,
             **primitives_kwargs,
@@ -147,21 +149,13 @@ class RoboDojoToolkit(Toolkit):
             self._SPECS["view_env_state"],
             partial(tools.view_env_state, state=self._state),
         )
-        self.add_tool(
-            "sample_world_xyz",
-            self._SPECS["sample_world_xyz"],
-            partial(tools.sample_world_xyz, self._state),
-        )
-        self.add_tool(
-            "find_objects",
-            self._SPECS["find_objects"],
-            partial(tools.find_objects, self._state),
-        )
-        self.add_tool(
-            "query_world_map",
-            self._SPECS["query_world_map"],
-            partial(tools.query_world_map, self._state),
-        )
+        if not self._perception_only:
+            for name, handler in (
+                ("sample_world_xyz", partial(tools.sample_world_xyz, self._state)),
+                ("find_objects", partial(tools.find_objects, self._state)),
+                ("query_world_map", partial(tools.query_world_map, self._state)),
+            ):
+                self.add_tool(name, self._SPECS[name], handler)
         names = ["render", *_ACTION_TOOLS]
         if getattr(self._primitives, "has_vla", False):
             names.append("vla_act")
@@ -222,6 +216,16 @@ class RoboDojoToolkit(Toolkit):
         status = self._primitives.status()
         self._latest_status = status
         observation = self._capture_full_observation()
+        if self._perception_only:
+            observation = {
+                "views": {
+                    name: {"rgb": view["rgb"]}
+                    for name, view in observation["views"].items()
+                },
+                "robot_state": observation["robot_state"],
+                "task_name": observation["task_name"],
+                "task_language": observation["task_language"],
+            }
         record = tools.dump_observation(
             observation,
             env_state=self._state,

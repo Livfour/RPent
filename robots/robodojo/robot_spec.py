@@ -185,11 +185,17 @@ def get_toolkit(
         primitives_kwargs=primitives_kwargs,
         dashboard_events=dashboard_events,
         memory=memory,
+        perception_only=bool(config.task_desc.get("perception_only", False)),
     )
 
 
 def _add_cli_args(parser: argparse.ArgumentParser, use_dashboard: bool) -> None:
     required = not use_dashboard
+    parser.add_argument(
+        "--perception-only",
+        action="store_true",
+        help="Expose RGB, language, and robot state without metric perception tools.",
+    )
     parser.add_argument(
         "--task-name",
         required=required,
@@ -307,6 +313,7 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
             "memory_dir": str(memory_dir),
             "reference_tag": f"{args.task_name}_l0",
             "vla_available": args.vla_endpoint is not None,
+            "perception_only": bool(args.perception_only),
         },
         task_desc={
             "env": "robodojo",
@@ -321,6 +328,7 @@ def _parse_config(args: argparse.Namespace) -> RunConfig:
             "vla_endpoint": args.vla_endpoint,
             "render_scale": float(args.render_scale),
             "low_memory_render": bool(args.low_memory_render),
+            "perception_only": bool(args.perception_only),
         },
     )
 
