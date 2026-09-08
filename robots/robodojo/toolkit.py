@@ -162,6 +162,36 @@ class RoboDojoToolkit(Toolkit):
         for name in names:
             self.add_tool(name, self._SPECS[name], partial(self._step, name))
         self.add_tool("finish", self._SPECS["finish"], self._finish)
+        self.add_tool(
+            "reset_episode",
+            {
+                "name": "reset_episode",
+                "description": "Reset this layout for a fresh controlled attempt; preserve lessons first.",
+                "input_schema": {"type": "object", "properties": {}},
+            },
+            self._reset_episode,
+        )
+        self.add_tool(
+            "write_lesson",
+            {
+                "name": "write_lesson",
+                "description": "Record a concise attempted strategy or failure in the current memory inbox for later runs.",
+                "input_schema": {"type": "object", "required": ["title", "lesson"], "properties": {"title": {"type": "string"}, "lesson": {"type": "string"}, "kind": {"type": "string", "enum": ["failure", "strategy", "perception", "primitive"]}}},
+            },
+            self._write_lesson,
+        )
+
+    def _reset_episode(self) -> dict[str, Any]:
+        result = self._primitives.reset_episode()
+        return self.get_env_state(command={"action": "reset_episode"}, result=result, elapsed_s=0.0)
+
+    def _write_lesson(self, *, title: str, lesson: str, kind: str = "failure") -> dict[str, Any]:
+        root = self._memory.root / "_internal" / "inbox" / "runtime"
+        root.mkdir(parents=True, exist_ok=True)
+        safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in title.lower()).strip("_")[:80]
+        path = root / f"{kind}_{safe or 'lesson'}.md"
+        path.write_text(f"---\nscope: global\nkind: {kind}\ntitle: {title}\napplies_when: RoboDojo runtime attempt\nconfidence: single-shot\nevidence:\n  cells: [runtime]\n  attempts: 1\n---\n\n{lesson.strip()}\n")
+        return {"success": True, "path": str(path), "message": "Lesson queued for memory merge."}
 
     @readonly
     def _finish(self, *, status: str, summary: str) -> dict[str, Any]:

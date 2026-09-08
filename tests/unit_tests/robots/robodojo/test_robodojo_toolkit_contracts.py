@@ -44,6 +44,8 @@ ANALYTIC_TOOLS = COMMON_TOOLS | {
     "rotate_wrist",
     "set_gripper",
     "release",
+    "reset_episode",
+    "write_lesson",
 }
 
 PRIMITIVE_METHODS = {
@@ -53,6 +55,7 @@ PRIMITIVE_METHODS = {
     "stop_recording",
     "status",
     "finish",
+    "reset_episode",
     "vla_act",
     "follow_ee_path",
     "move_to",
@@ -105,6 +108,9 @@ class FakeRoboDojoPrimitives:
 
     def finish(self, *, status: str, summary: str) -> dict[str, Any]:
         return {"_finish": True, "status": status, "summary": summary}
+
+    def reset_episode(self) -> dict[str, Any]:
+        return {"success": True, "episode_status": self.status()}
 
     @staticmethod
     def _operation(name: str, **kwargs: Any) -> dict[str, Any]:

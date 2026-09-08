@@ -501,6 +501,17 @@ class RoboDojoPrimitives:
 
     # ---- status ----------------------------------------------------------
 
+    def reset_episode(self) -> dict[str, Any]:
+        """Reset the current layout for a fresh RSI attempt."""
+        observation, info = self.env.reset()
+        self.policy_actions = 0
+        self.native_actions = 0
+        return {
+            "success": True,
+            "observation": observation,
+            "episode_status": info.get("episode_status", self._episode_status()),
+        }
+
     def status(self) -> dict[str, Any]:
         """Return the native episode status plus action counters."""
         return {
