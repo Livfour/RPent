@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import os
 from typing import Any
 
 import numpy as np
@@ -212,6 +213,18 @@ GRIPPER_REACH_M = 0.115
 GRASP_QUAT = (0.5, -0.5, 0.5, 0.5)
 
 
+def _grasp_assist() -> str:
+    """How much of the grasp geometry find_objects solves for the planner.
+
+    ``full`` (default) publishes ready-to-command approach/grasp/lift poses.
+    ``minimal`` publishes only the measured object geometry and the rule, so
+    the planner has to apply the gripper offset and orientation itself. Used to
+    compare planners without the tool doing their spatial reasoning for them.
+    """
+    value = os.environ.get("RPENT_GRASP_ASSIST", "full").strip().lower()
+    return "minimal" if value == "minimal" else "full"
+
+
 @readonly
 def find_objects(
     env_state: EnvState,
@@ -266,7 +279,9 @@ def find_objects(
                                 stack.append((rr, cc))
             components.append(pixels)
 
+    assist = _grasp_assist()
     objects: list[dict[str, Any]] = []
+    excluded = 0
     for pixels in components:
         if len(pixels) < 12:  # speckle, not an object
             continue
@@ -279,6 +294,14 @@ def find_objects(
         # Robust extents: ignore the outermost 5% on each axis.
         ext_x = float(np.percentile(xs, 97.5) - np.percentile(xs, 2.5))
         ext_y = float(np.percentile(ys, 97.5) - np.percentile(ys, 2.5))
+        # The depth map contains the robot's own arms and the camera stand, and
+        # they cluster into tall raised blobs that outrank every real target
+        # when sorted by height. Nothing graspable is this large in plan view or
+        # this far above the table, so drop them rather than offer the planner
+        # its own gripper as a candidate.
+        if max(ext_x, ext_y) > 0.22 or top > float(table_z) + 0.28:
+            excluded += 1
+            continue
         arm = "right" if centre[0] >= 0 else "left"
         base = (0.30, -0.35) if arm == "right" else (-0.30, -0.35)
         reach = float(np.hypot(centre[0] - base[0], centre[1] - base[1]))
@@ -299,61 +322,57 @@ def find_objects(
                 "extent_y": round(ext_y, 4),
                 "nearest_arm": arm,
                 "reach_m": round(reach, 3),
-                # The reported end-effector frame is not the point between the
-                # fingers: the jaws sit GRIPPER_REACH_M along the gripper's
-                # approach axis, which points *down* only under GRASP_QUAT.
-                # These three fields are the waypoints to command directly.
-                "grasp_quat": list(GRASP_QUAT),
-                # Depth only sees the top surface, so centre[2] is the top of
-                # the object, not its mid-height. Grasping there catches a cap
-                # or rim and slips; drop into the body by a fraction of the
-                # object's height instead.
-                "grasp_ee_xyz": [
-                    round(centre[0], 4),
-                    round(centre[1], 4),
-                    round(
-                        top
-                        - max(0.015, min(0.05, 0.35 * (top - float(table_z))))
-                        + GRIPPER_REACH_M,
-                        4,
-                    ),
-                ],
-                "approach_ee_xyz": [
-                    round(centre[0], 4),
-                    round(centre[1], 4),
-                    round(top + 0.12 + GRIPPER_REACH_M, 4),
-                ],
-                "lift_ee_xyz": [
-                    round(centre[0], 4),
-                    round(centre[1], 4),
-                    round(
-                        top
-                        - max(0.015, min(0.05, 0.35 * (top - float(table_z))))
-                        + GRIPPER_REACH_M
-                        + 0.28,
-                        4,
-                    ),
-                ],
-                # The jaws separate along world X at the default wrist
-                # orientation, so ext_x is the width that must fit; a 90 degree
-                # yaw swaps in ext_y. Measured open separation is ~0.126 between
-                # finger centres, i.e. roughly 0.10 of usable gap.
-                "closing_axis": "x",
                 "closing_width_m": round(ext_x, 4),
                 "jaw_clearance_m": round(0.100 - ext_x, 4),
-                "jaw_clearance_if_rotated_m": round(0.100 - ext_y, 4),
-                "box_is_reliable": bool(max(ext_x, ext_y) <= 0.11 and top - float(table_z) >= 0.05),
-                # The jaws must descend *past* the object, not merely fit around
-                # it: a few millimetres of slack is an alignment problem, not a
-                # grasp. Measured on this deployment, the fingertips reach about
-                # 0.040 below the wrist and the wrist clears the table across
-                # most of the workspace, so width is the binding constraint.
-                "graspable": bool(
-                    min(ext_x, ext_y) <= 0.085
-                    and top - float(table_z) >= 0.03
-                    and reach < 0.55
+                # Under full assist the tool also publishes ready-to-command
+                # poses: the jaws sit GRIPPER_REACH_M from the reported frame
+                # along an approach axis that points down only under
+                # GRASP_QUAT, and depth sees only the top surface, so the grasp
+                # height drops into the object's body. Under minimal assist the
+                # planner is given the rule and must apply it itself.
+                **(
+                    {}
+                    if assist == "minimal"
+                    else {"grasp_quat": list(GRASP_QUAT)}
                 ),
-                "needs_wrist_rotation": bool(ext_x > 0.085 >= ext_y),
+                **(
+                    {}
+                    if assist == "minimal"
+                    else {
+                        "approach_ee_xyz": [
+                            round(centre[0], 4),
+                            round(centre[1], 4),
+                            round(top + 0.12 + GRIPPER_REACH_M, 4),
+                        ],
+                        "grasp_ee_xyz": [
+                            round(centre[0], 4),
+                            round(centre[1], 4),
+                            round(
+                                top
+                                - max(0.015, min(0.05, 0.35 * (top - float(table_z))))
+                                + GRIPPER_REACH_M,
+                                4,
+                            ),
+                        ],
+                        "lift_ee_xyz": [
+                            round(centre[0], 4),
+                            round(centre[1], 4),
+                            round(
+                                top
+                                - max(0.015, min(0.05, 0.35 * (top - float(table_z))))
+                                + GRIPPER_REACH_M
+                                + 0.28,
+                                4,
+                            ),
+                        ],
+                        "graspable": bool(
+                            min(ext_x, ext_y) <= 0.085
+                            and top - float(table_z) >= 0.03
+                            and reach < 0.55
+                        ),
+                        "needs_wrist_rotation": bool(ext_x > 0.085 >= ext_y),
+                    }
+                ),
             }
         )
     objects.sort(key=lambda o: -o["top_z"])
@@ -366,6 +385,7 @@ def find_objects(
         "table_z": float(table_z),
         "objects": objects[: int(max_objects)],
         "truncated": truncated,
+        "excluded_fixtures": excluded,
         "note": (
             "pixel_bbox is [row_min,col_min,row_max,col_max] in this view's RGB; "
             "centre_xyz and top_z are world metres for the same points. Match the "
@@ -376,12 +396,21 @@ def find_objects(
             "degree yaw swaps the axes. jaw_clearance_m reports the slack, and "
             "under about 0.015 m the grasp becomes an alignment lottery. Note a "
             "box only describes a compact upright object: for a thin item lying "
-            "diagonally the box is mostly empty air. IMPORTANT: command "
-            "grasp_quat with approach_ee_xyz / grasp_ee_xyz / lift_ee_xyz "
-            "verbatim. The reported end-effector frame is 0.115 m from the "
-            "jaws along the approach axis, and that axis points sideways at the "
-            "default orientation, so hovering the wrist over an object and "
-            "descending closes the fingers on empty table."
+            "diagonally the box is mostly empty air.\n"
+            "GRIPPER GEOMETRY, which you must account for: the reported "
+            "end-effector pose is NOT the point between the fingers. The jaws "
+            "sit 0.115 m from it along the gripper's approach axis. At the "
+            "default wrist orientation that axis points horizontally, so "
+            "hovering the wrist over an object and descending closes the "
+            "fingers on empty table. Commanding quat [0.5,-0.5,0.5,0.5] turns "
+            "the approach axis straight down, and the jaws then hang 0.115 m "
+            "BELOW the wrist, aligned with it in x and y. Also note centre_xyz "
+            "and top_z come from depth, which only sees the object's top "
+            "surface, so grasping at that height catches a rim and slips; aim "
+            "into the body. When this tool returns grasp_quat / "
+            "approach_ee_xyz / grasp_ee_xyz / lift_ee_xyz, that arithmetic is "
+            "already done and those poses should be commanded verbatim; when "
+            "it does not, derive them yourself from the rule above."
         ),
     }
 
