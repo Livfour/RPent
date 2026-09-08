@@ -190,7 +190,7 @@ class RoboDojoToolkit(Toolkit):
         root.mkdir(parents=True, exist_ok=True)
         safe = "".join(c if c.isalnum() or c in "-_" else "_" for c in title.lower()).strip("_")[:80]
         path = root / f"{kind}_{safe or 'lesson'}.md"
-        path.write_text(f"---\nscope: global\nkind: {kind}\ntitle: {title}\napplies_when: RoboDojo runtime attempt\nconfidence: single-shot\nevidence:\n  cells: [runtime]\n  attempts: 1\n---\n\n{lesson.strip()}\n")
+        path.write_text(f"---\nscope: suite\nsuite: robodojo\nregime: perception-only\ntask_id: runtime\ntask_language: RoboDojo task\ntitle: {title}\nconfidence: single-shot\nevidence:\n  cells: [runtime]\n  attempts: 1\n---\n\n{lesson.strip()}\n")
         return {"success": True, "path": str(path), "message": "Lesson queued for memory merge."}
 
     @readonly

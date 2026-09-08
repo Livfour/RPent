@@ -570,8 +570,8 @@ def main() -> int:
 
     # Publish exploration artifacts into the corpus after the session loop.
     if (
-        getattr(args, "explore", False)
-        and getattr(args, "auto_merge_memory", False)
+        (getattr(args, "explore", False) and getattr(args, "auto_merge_memory", False))
+        or robot_name == "robodojo"
         and not agent_error
         and memory_manager is not None
     ):
