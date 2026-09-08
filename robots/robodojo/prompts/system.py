@@ -78,6 +78,15 @@ PICK_PLACE = """Pick and place:
 7. Repair with short follow_ee_path or move_delta calls; only re-run a full
    path after changing a meaningful variable."""
 
+PICK_PLACE_PERCEPTION_ONLY = """Pick and place using RGB and robot state only.
+Estimate target and bin coordinates from the images, try a conservative grasp,
+then inspect the returned RGB, gripper state, and episode_status. A failed
+grasp is feedback: adjust the image location, height, arm, or orientation and
+try again while steps remain. After likely contact, lift vertically and check
+whether the object moved. For multi-object tasks, repeat this loop for every
+visible target. The simulator's eval_success and done fields are authoritative;
+do not finish early merely because coordinates are uncertain."""
+
 CONTROL = """Coordinates are world-frame metres; quaternions are [qw,qx,qy,qz].
 Gripper values are normalized: 0 fully closed, 1 fully open. Each move_to
 interpolates a straight line over `steps` native 25 Hz actions; use 10-20
