@@ -186,6 +186,7 @@ def get_toolkit(
         dashboard_events=dashboard_events,
         memory=memory,
         perception_only=bool(config.task_desc.get("perception_only", False)),
+        output_dir=config.task_desc.get("state_output_dir"),
     )
 
 

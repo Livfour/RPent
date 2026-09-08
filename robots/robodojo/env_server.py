@@ -655,6 +655,12 @@ class RoboDojoEnvFacade(MainThreadServeMixin, BaseEnvFacade):
         started = time.monotonic()
         stage_published_layout(env, self._layout_id)
         env.reset(seed=[self._layout_id])
+        # Some RoboDojo task wrappers retain these arrays across resets.
+        # Explicitly restore the episode boundary used by the RPC contract.
+        if getattr(env, "take_action_cnt", None) is not None:
+            env.take_action_cnt[0] = 0
+        if getattr(env, "end_flag", None) is not None:
+            env.end_flag[0] = False
         ensure_physx_render_sync(env)
         apply_published_layout(env)
         capture_reward_baseline(env)

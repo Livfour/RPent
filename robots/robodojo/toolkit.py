@@ -106,8 +106,9 @@ class RoboDojoToolkit(Toolkit):
         dashboard_events: DashboardEventSink,
         memory: MemoryManager,
         perception_only: bool = False,
+        output_dir: str | None = None,
     ):
-        state = EnvState(get_output_dir())
+        state = EnvState(output_dir or get_output_dir())
         super().__init__(
             dashboard_events=dashboard_events,
             state=state,

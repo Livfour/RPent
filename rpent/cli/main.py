@@ -452,6 +452,8 @@ def main() -> int:
                 state_output_dir = (
                     output_dir / "sessions" / f"session_{session_number:03d}"
                 )
+            if robot_name == "robodojo" and sessions > 1:
+                run_config.task_desc["state_output_dir"] = str(state_output_dir)
             if robot_name == "libero":
                 toolkit = get_toolkit(
                     robot_name,
@@ -463,6 +465,16 @@ def main() -> int:
                         args, "explore_attempts_per_session", 0
                     ),
                     state_output_dir=state_output_dir,
+                )
+            elif robot_name == "robodojo" and sessions > 1:
+                state_output_dir = (
+                    output_dir / "sessions" / f"session_{session_number:03d}"
+                )
+                toolkit = get_toolkit(
+                    robot_name,
+                    primitives_kwargs=primitives_kwargs,
+                    dashboard_events=dashboard_events,
+                    config=run_config,
                 )
             else:
                 toolkit = get_toolkit(
