@@ -102,6 +102,17 @@ Pair RGB and world maps from the same step and view. World maps are
 [row,col] -> [x,y,z] metres and may contain NaN. Relocalize after occlusion,
 contact, or substantial arm/object motion."""
 
+PERCEPTION_ONLY = """This run exposes no metric perception tools. After every
+action, inspect the returned state: episode_status is the simulator authority
+and contains eval_success, done, take_action_cnt, step_lim, and score. Treat
+eval_success=true as completed and stop immediately. If it is false and done is
+false, continue from the fresh RGB observation. Use gripper settling as contact
+feedback: around 0.4-0.5 suggests an object is held, while 0.0 suggests empty
+closure. When contact is detected, spend the next actions on a short vertical
+lift and re-observe before attempting another grasp. Do not call finish while
+steps remain unless the simulator reports success or no safe progress is
+possible."""
+
 RUNTIME = """The registered RoboDojo Toolkit is the only control surface. Do
 not use shell, Python, network clients, plan mode, user questions, or unrelated
 built-in tools. Never inspect task source, evaluator implementation, hidden
