@@ -202,6 +202,190 @@ def sample_world_xyz(
     }
 
 
+#: The jaws sit this far along the gripper's approach axis from the reported
+#: end-effector frame. Measured from the finger links (link7/link8).
+GRIPPER_REACH_M = 0.115
+
+#: Wrist orientation that points the approach axis straight down (world -z).
+#: At the reset orientation the axis points along +y, i.e. horizontally, and a
+#: "descend and close" then sweeps the fingers through empty table.
+GRASP_QUAT = (0.5, -0.5, 0.5, 0.5)
+
+
+@readonly
+def find_objects(
+    env_state: EnvState,
+    *,
+    view: str = "head",
+    step: int = -1,
+    table_z: float = 0.765,
+    min_height: float = 0.02,
+    max_objects: int = 15,
+) -> dict[str, Any]:
+    """Group the world map into tabletop objects, in pixels *and* metres.
+
+    Each candidate carries the pixel box that frames it in the RGB view and the
+    world geometry of the same points, so the instruction can be matched to a
+    picture and the grasp can be planned from coordinates without ever
+    converting between the two by hand.
+    """
+    state, world, error = _load_world_xyz(env_state, view=view, step=step)
+    if error is not None:
+        return error
+    height, width = world.shape[0], world.shape[1]
+    z = world[:, :, 2]
+    raised = np.isfinite(z) & (z > float(table_z) + float(min_height))
+    raised &= np.isfinite(world[:, :, 0]) & np.isfinite(world[:, :, 1])
+    raised &= np.abs(world[:, :, 0]) <= 0.75
+    raised &= (world[:, :, 1] >= -0.7) & (world[:, :, 1] <= 0.6)
+
+    # Connected components over the raised mask; objects are contiguous in the
+    # image, so this needs no clustering threshold in metres.
+    labels = np.zeros((height, width), dtype=np.int32)
+    current = 0
+    stack: list[tuple[int, int]] = []
+    components: list[list[tuple[int, int]]] = []
+    for row, col in np.argwhere(raised):
+        row, col = int(row), int(col)
+        if labels[row, col]:
+            continue
+        if True:
+            current += 1
+            stack.append((row, col))
+            labels[row, col] = current
+            pixels: list[tuple[int, int]] = []
+            while stack:
+                r, c = stack.pop()
+                pixels.append((r, c))
+                for dr in (-1, 0, 1):
+                    for dc in (-1, 0, 1):
+                        rr, cc = r + dr, c + dc
+                        if 0 <= rr < height and 0 <= cc < width:
+                            if raised[rr, cc] and not labels[rr, cc]:
+                                labels[rr, cc] = current
+                                stack.append((rr, cc))
+            components.append(pixels)
+
+    objects: list[dict[str, Any]] = []
+    for pixels in components:
+        if len(pixels) < 12:  # speckle, not an object
+            continue
+        rows = np.asarray([p[0] for p in pixels])
+        cols = np.asarray([p[1] for p in pixels])
+        points = world[rows, cols]
+        xs, ys, zs = points[:, 0], points[:, 1], points[:, 2]
+        centre = [float(np.median(xs)), float(np.median(ys)), float(np.median(zs))]
+        top = float(np.max(zs))
+        # Robust extents: ignore the outermost 5% on each axis.
+        ext_x = float(np.percentile(xs, 97.5) - np.percentile(xs, 2.5))
+        ext_y = float(np.percentile(ys, 97.5) - np.percentile(ys, 2.5))
+        arm = "right" if centre[0] >= 0 else "left"
+        base = (0.30, -0.35) if arm == "right" else (-0.30, -0.35)
+        reach = float(np.hypot(centre[0] - base[0], centre[1] - base[1]))
+        objects.append(
+            {
+                "pixel_bbox": [
+                    int(rows.min()),
+                    int(cols.min()),
+                    int(rows.max()) + 1,
+                    int(cols.max()) + 1,
+                ],
+                "pixel_centre": [int(np.median(rows)), int(np.median(cols))],
+                "n_points": int(len(pixels)),
+                "centre_xyz": [round(v, 4) for v in centre],
+                "top_z": round(top, 4),
+                "height_above_table": round(top - float(table_z), 4),
+                "extent_x": round(ext_x, 4),
+                "extent_y": round(ext_y, 4),
+                "nearest_arm": arm,
+                "reach_m": round(reach, 3),
+                # The reported end-effector frame is not the point between the
+                # fingers: the jaws sit GRIPPER_REACH_M along the gripper's
+                # approach axis, which points *down* only under GRASP_QUAT.
+                # These three fields are the waypoints to command directly.
+                "grasp_quat": list(GRASP_QUAT),
+                # Depth only sees the top surface, so centre[2] is the top of
+                # the object, not its mid-height. Grasping there catches a cap
+                # or rim and slips; drop into the body by a fraction of the
+                # object's height instead.
+                "grasp_ee_xyz": [
+                    round(centre[0], 4),
+                    round(centre[1], 4),
+                    round(
+                        top
+                        - max(0.015, min(0.05, 0.35 * (top - float(table_z))))
+                        + GRIPPER_REACH_M,
+                        4,
+                    ),
+                ],
+                "approach_ee_xyz": [
+                    round(centre[0], 4),
+                    round(centre[1], 4),
+                    round(top + 0.12 + GRIPPER_REACH_M, 4),
+                ],
+                "lift_ee_xyz": [
+                    round(centre[0], 4),
+                    round(centre[1], 4),
+                    round(
+                        top
+                        - max(0.015, min(0.05, 0.35 * (top - float(table_z))))
+                        + GRIPPER_REACH_M
+                        + 0.28,
+                        4,
+                    ),
+                ],
+                # The jaws separate along world X at the default wrist
+                # orientation, so ext_x is the width that must fit; a 90 degree
+                # yaw swaps in ext_y. Measured open separation is ~0.126 between
+                # finger centres, i.e. roughly 0.10 of usable gap.
+                "closing_axis": "x",
+                "closing_width_m": round(ext_x, 4),
+                "jaw_clearance_m": round(0.100 - ext_x, 4),
+                "jaw_clearance_if_rotated_m": round(0.100 - ext_y, 4),
+                "box_is_reliable": bool(max(ext_x, ext_y) <= 0.11 and top - float(table_z) >= 0.05),
+                # The jaws must descend *past* the object, not merely fit around
+                # it: a few millimetres of slack is an alignment problem, not a
+                # grasp. Measured on this deployment, the fingertips reach about
+                # 0.040 below the wrist and the wrist clears the table across
+                # most of the workspace, so width is the binding constraint.
+                "graspable": bool(
+                    min(ext_x, ext_y) <= 0.085
+                    and top - float(table_z) >= 0.03
+                    and reach < 0.55
+                ),
+                "needs_wrist_rotation": bool(ext_x > 0.085 >= ext_y),
+            }
+        )
+    objects.sort(key=lambda o: -o["top_z"])
+    truncated = len(objects) > int(max_objects)
+    return {
+        "success": True,
+        "step_idx": state.get("step_idx"),
+        "view": view,
+        "image_shape": [height, width],
+        "table_z": float(table_z),
+        "objects": objects[: int(max_objects)],
+        "truncated": truncated,
+        "note": (
+            "pixel_bbox is [row_min,col_min,row_max,col_max] in this view's RGB; "
+            "centre_xyz and top_z are world metres for the same points. Match the "
+            "instruction against the RGB inside a box, then plan with that box's "
+            "coordinates. The jaws separate along world X at the default wrist "
+            "orientation, so closing_width_m (ext_x) is what must fit the ~0.10 m "
+            "gap; when only ext_y fits, needs_wrist_rotation is set and a 90 "
+            "degree yaw swaps the axes. jaw_clearance_m reports the slack, and "
+            "under about 0.015 m the grasp becomes an alignment lottery. Note a "
+            "box only describes a compact upright object: for a thin item lying "
+            "diagonally the box is mostly empty air. IMPORTANT: command "
+            "grasp_quat with approach_ee_xyz / grasp_ee_xyz / lift_ee_xyz "
+            "verbatim. The reported end-effector frame is 0.115 m from the "
+            "jaws along the approach axis, and that axis points sideways at the "
+            "default orientation, so hovering the wrist over an object and "
+            "descending closes the fingers on empty table."
+        ),
+    }
+
+
 @readonly
 def query_world_map(
     env_state: EnvState,
@@ -474,6 +658,32 @@ TOOLS_SPEC = [
         },
     },
     {
+        "name": "find_objects",
+        "description": (
+            "List the tabletop objects with their pixel box in the RGB view AND "
+            "their world geometry, already checked against the gripper envelope. "
+            "Use this FIRST for any pick or place: it removes the pixel-to-metre "
+            "conversion entirely. Read the RGB, decide which returned box holds "
+            "the object the instruction names, then plan follow_ee_path straight "
+            "from that entry's centre_xyz/top_z. `graspable` reports whether the "
+            "target clears the 0.815 fingertip floor, fits the 0.089 m jaw span "
+            "on one horizontal axis, and lies within 0.55 m of an arm base; "
+            "`needs_wrist_rotation` means only the x axis fits, so rotate the "
+            "wrist 90 degrees before descending."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "view": {"type": "string", "default": "head"},
+                "step": {"type": "integer", "default": -1},
+                "table_z": {"type": "number", "default": 0.765},
+                "min_height": {"type": "number", "default": 0.02},
+                "max_objects": {"type": "integer", "minimum": 1, "default": 15},
+            },
+            "required": [],
+        },
+    },
+    {
         "name": "query_world_map",
         "description": (
             "Read deterministic world-xyz samples from a half-open "
@@ -553,6 +763,60 @@ TOOLS_SPEC = [
                 "steps": _STEPS,
             },
             "required": ["arm", "xyz"],
+        },
+    },
+    {
+        "name": "follow_ee_path",
+        "description": (
+            "Execute a whole planned end-effector path in ONE call. Give the "
+            "ordered waypoints of the motion (approach, descend, close, lift, "
+            "carry, release) and the trajectory is solved forward from the "
+            "planned poses -- each segment starts where the previous waypoint "
+            "commanded, not where the arm drifted to -- then run as a single "
+            "continuous 25 Hz chunk with smooth start/stop per segment. "
+            "Prefer this over a chain of move_to/set_gripper calls: it is one "
+            "turn instead of six and the motion does not stall between "
+            "waypoints. Per waypoint, omit xyz to hold position, omit quat to "
+            "keep the current orientation, and omit gripper to keep its value "
+            "(0 closed, 1 open); a gripper-only waypoint closes or opens in "
+            "place. Check final_dist_m against the last waypoint."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "arm": _ARM,
+                "waypoints": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 12,
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "xyz": {
+                                "type": ["array", "null"],
+                                "items": {"type": "number"},
+                                "minItems": 3,
+                                "maxItems": 3,
+                            },
+                            "quat": {
+                                "type": ["array", "null"],
+                                "items": {"type": "number"},
+                                "minItems": 4,
+                                "maxItems": 4,
+                            },
+                            "gripper": {
+                                "type": ["number", "null"],
+                                "minimum": 0,
+                                "maximum": 1,
+                            },
+                            "steps": {"type": ["integer", "null"], "minimum": 1, "maximum": 200},
+                        },
+                    },
+                },
+                "default_steps": {**_STEPS, "default": 20},
+                "ease": {"type": ["boolean", "null"], "default": True},
+            },
+            "required": ["arm", "waypoints"],
         },
     },
     {

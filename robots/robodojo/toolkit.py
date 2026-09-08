@@ -35,6 +35,7 @@ if TYPE_CHECKING:
 logger = get_logger("robodojo_toolkit")
 
 _ACTION_TOOLS = (
+    "follow_ee_path",
     "move_to",
     "move_delta",
     "rotate_wrist",
@@ -150,6 +151,11 @@ class RoboDojoToolkit(Toolkit):
             "sample_world_xyz",
             self._SPECS["sample_world_xyz"],
             partial(tools.sample_world_xyz, self._state),
+        )
+        self.add_tool(
+            "find_objects",
+            self._SPECS["find_objects"],
+            partial(tools.find_objects, self._state),
         )
         self.add_tool(
             "query_world_map",

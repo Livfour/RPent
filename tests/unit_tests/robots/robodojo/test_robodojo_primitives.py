@@ -194,3 +194,81 @@ def test_finish_reports_native_success_only() -> None:
     result = primitives.finish(status="failure", summary="oops")
     assert result["status"] == "success"
     assert result["success"] is True
+
+
+def test_follow_ee_path_runs_every_segment_as_one_chunk() -> None:
+    env = FakeEnv()
+    primitives = _primitives(env)
+
+    result = primitives.follow_ee_path(
+        arm="left",
+        waypoints=[
+            {"xyz": [-0.2, 0.0, 1.0], "gripper": 1.0, "steps": 4},
+            {"xyz": [-0.2, 0.0, 0.85], "steps": 3},
+            {"gripper": 0.0, "steps": 2},
+            {"xyz": [-0.2, 0.0, 1.0], "steps": 3},
+        ],
+    )
+
+    # One native chunk carries the whole path, not one chunk per waypoint.
+    assert len(env.chunks) == 1
+    assert len(env.chunks[0]) == 12
+    assert result["planned_steps"] == 12
+    assert result["executed_steps"] == 12
+    assert result["stop_reason"] == "completed"
+    assert [point["steps"] for point in result["waypoints"]] == [4, 3, 2, 3]
+
+
+def test_follow_ee_path_holds_pose_and_gripper_when_omitted() -> None:
+    env = FakeEnv()
+    primitives = _primitives(env)
+
+    result = primitives.follow_ee_path(
+        arm="left",
+        waypoints=[
+            {"xyz": [-0.25, 0.05, 0.88], "gripper": 1.0, "steps": 2},
+            {"gripper": 0.0, "steps": 2},
+        ],
+    )
+    chunk = env.chunks[0]
+
+    # The close-in-place waypoint keeps xyz and only ramps the gripper.
+    np.testing.assert_allclose(chunk[-1][0:3], [-0.25, 0.05, 0.88], atol=1e-9)
+    assert chunk[-1][7] == pytest.approx(0.0)
+    assert result["final_gripper"] == pytest.approx(0.0)
+    assert result["final_dist_m"] == pytest.approx(0.0, abs=1e-9)
+    # The idle arm holds the pose it had when the path was planned.
+    np.testing.assert_allclose(chunk[-1][8:16], [0.2, 0.0, 0.9, 1, 0, 0, 0, 1.0])
+
+
+def test_follow_ee_path_chains_segments_from_commanded_poses() -> None:
+    env = FakeEnv()
+    primitives = _primitives(env)
+
+    primitives.follow_ee_path(
+        arm="left",
+        waypoints=[
+            {"xyz": [-0.2, 0.0, 1.0], "steps": 2},
+            {"xyz": [-0.2, 0.1, 1.0], "steps": 2},
+        ],
+        ease=False,
+    )
+    chunk = env.chunks[0]
+
+    # Segment two starts at waypoint one's commanded pose, so y advances by
+    # half the segment on its first action.
+    np.testing.assert_allclose(chunk[1][0:3], [-0.2, 0.0, 1.0], atol=1e-9)
+    np.testing.assert_allclose(chunk[2][0:3], [-0.2, 0.05, 1.0], atol=1e-9)
+    np.testing.assert_allclose(chunk[3][0:3], [-0.2, 0.1, 1.0], atol=1e-9)
+
+
+def test_follow_ee_path_rejects_an_over_budget_path() -> None:
+    env = FakeEnv()
+    primitives = _primitives(env)
+
+    with pytest.raises(ValueError, match="the limit is 400"):
+        primitives.follow_ee_path(
+            arm="left",
+            waypoints=[{"xyz": [-0.2, 0.0, 1.0], "steps": 200}] * 3,
+        )
+    assert env.chunks == []

@@ -260,6 +260,44 @@ def apply_published_layout(env) -> None:
     scene_manager.apply_saved_poses(env_idx_list=[0])
 
 
+def usd_camera_intrinsics(camera_name: str, width: int, height: int):
+    """Focal lengths taken from the USD camera itself.
+
+    RoboDojo reads one ``focal_length`` from the camera config in two different
+    units. ``set_focal_length`` treats it as centimetres and writes ``value*10``
+    onto the USD prim, which is what actually renders; ``camera_manager``
+    treats the same number as millimetres and advertises
+    ``fx = width*value/aperture``. The two therefore disagree by exactly 10x
+    for any config value, and back-projecting depth with the advertised matrix
+    puts every world coordinate about ten times too far from the optical axis.
+
+    The config is fixed so the prim gets the intended focal length and the
+    render is right; this derives the reported intrinsics from that same prim
+    so they describe the image that was actually rendered. Falls back to the
+    reported matrix when the prim cannot be found.
+    """
+    try:
+        import omni.usd
+        from pxr import UsdGeom
+    except Exception:
+        return None
+    native = ROBODOJO_CAMERAS.get(camera_name, camera_name)
+    stage = omni.usd.get_context().get_stage()
+    if stage is None:
+        return None
+    for prim in stage.Traverse():
+        if prim.GetName() != native or not prim.IsA(UsdGeom.Camera):
+            continue
+        cam = UsdGeom.Camera(prim)
+        focal = cam.GetFocalLengthAttr().Get()
+        h_ap = cam.GetHorizontalApertureAttr().Get()
+        v_ap = cam.GetVerticalApertureAttr().Get()
+        if not focal or not h_ap or not v_ap:
+            return None
+        return float(focal) / float(h_ap) * width, float(focal) / float(v_ap) * height
+    return None
+
+
 def patch_lean_curobo_planner() -> None:
     """Keep only the cuRobo IK solver RPent's end-effector actions need.
 
@@ -724,8 +762,19 @@ class RoboDojoEnvFacade(MainThreadServeMixin, BaseEnvFacade):
             raise RuntimeError(
                 f"RoboDojo camera {camera_name!r} has no intrinsic/extrinsic matrices"
             )
+        intrinsic_K = np.asarray(intrinsic, dtype=np.float64).copy()
+        usd_focal = usd_camera_intrinsics(camera_name, int(width), int(height))
+        if usd_focal is not None:
+            fx, fy = usd_focal
+            if abs(fx - intrinsic_K[0, 0]) > 0.01 * max(1.0, intrinsic_K[0, 0]):
+                logger.warning(
+                    "RoboDojo camera %r reports fx=%.2f but its USD optics give "
+                    "fx=%.2f; using the USD value so depth back-projects correctly",
+                    camera_name, intrinsic_K[0, 0], fx,
+                )
+            intrinsic_K[0, 0], intrinsic_K[1, 1] = fx, fy
         return {
-            "intrinsic_K": np.asarray(intrinsic, dtype=np.float64),
+            "intrinsic_K": intrinsic_K,
             "cam2world_gl": np.asarray(cam2world, dtype=np.float64),
             "width": int(width),
             "height": int(height),

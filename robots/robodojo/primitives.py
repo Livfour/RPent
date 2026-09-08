@@ -72,6 +72,10 @@ def _require_arm(arm: Any) -> str:
 class RoboDojoPrimitives:
     """Compose RoboDojo operations from the env RPC and an optional VLA."""
 
+    #: Guard rails for a single planned end-effector path.
+    _MAX_PATH_STEPS = 400
+    _MAX_PATH_WAYPOINTS = 12
+
     def __init__(
         self,
         *,
@@ -249,6 +253,133 @@ class RoboDojoPrimitives:
             "final_eef_xyz": final[:3].tolist(),
             "final_eef_quat": final[3:].tolist(),
             "final_dist_m": float(np.linalg.norm(final[:3] - target_xyz)),
+        }
+
+    def _plan_ee_path(
+        self,
+        arm: str,
+        waypoints: list[dict[str, Any]],
+        default_steps: int,
+        ease: bool,
+    ) -> tuple[np.ndarray, list[dict[str, Any]]]:
+        """Solve one ee16 trajectory through planned end-effector waypoints.
+
+        Every segment starts at the previous *commanded* pose instead of a fresh
+        state read, so the whole path is known before the first action executes
+        and a waypoint the IK undershoots cannot drag the rest of the path with
+        it. The opposite arm holds the pose it had when planning started.
+        """
+        pose_slice, grip_index = _ARM_SLICES[arm]
+        start = pose_slice.start
+        base = self._current_ee16()
+        cursor_xyz = base[start : start + 3].copy()
+        cursor_quat = base[start + 3 : pose_slice.stop].copy()
+        cursor_grip = float(base[grip_index])
+        segments: list[np.ndarray] = []
+        plan: list[dict[str, Any]] = []
+        total_steps = 0
+        for index, waypoint in enumerate(waypoints):
+            if not isinstance(waypoint, dict):
+                raise ValueError(f"waypoint {index} must be an object")
+            raw_xyz = waypoint.get("xyz")
+            target_xyz = (
+                cursor_xyz.copy()
+                if raw_xyz is None
+                else np.asarray(raw_xyz, dtype=np.float64).reshape(3)
+            )
+            raw_quat = waypoint.get("quat")
+            target_quat = (
+                cursor_quat.copy()
+                if raw_quat is None
+                else np.asarray(raw_quat, dtype=np.float64).reshape(4)
+            )
+            raw_grip = waypoint.get("gripper")
+            target_grip = (
+                cursor_grip if raw_grip is None else float(np.clip(raw_grip, 0.0, 1.0))
+            )
+            steps = int(waypoint.get("steps") or default_steps)
+            if steps < 1 or steps > 200:
+                raise ValueError(f"waypoint {index}: steps must be between 1 and 200")
+            if not np.isfinite(target_xyz).all() or not np.isfinite(target_quat).all():
+                raise ValueError(f"waypoint {index}: xyz and quat must be finite")
+            norm = float(np.linalg.norm(target_quat))
+            if norm < 1e-6:
+                raise ValueError(f"waypoint {index}: quat must be non-zero")
+            target_quat = target_quat / norm
+            total_steps += steps
+            if total_steps > self._MAX_PATH_STEPS:
+                raise ValueError(
+                    f"path needs {total_steps} actions; the limit is "
+                    f"{self._MAX_PATH_STEPS}"
+                )
+            segment = np.repeat(base[None, :], steps, axis=0)
+            for offset in range(steps):
+                t = (offset + 1) / steps
+                if ease:
+                    # Smoothstep: zero velocity at both ends of every segment.
+                    t = t * t * (3.0 - 2.0 * t)
+                segment[offset, start : start + 3] = (
+                    cursor_xyz + (target_xyz - cursor_xyz) * t
+                )
+                segment[offset, start + 3 : pose_slice.stop] = _slerp(
+                    cursor_quat, target_quat, t
+                )
+                segment[offset, grip_index] = (
+                    cursor_grip + (target_grip - cursor_grip) * t
+                )
+            segments.append(segment)
+            plan.append(
+                {
+                    "index": index,
+                    "xyz": target_xyz.tolist(),
+                    "quat": target_quat.tolist(),
+                    "gripper": target_grip,
+                    "steps": steps,
+                }
+            )
+            cursor_xyz, cursor_quat, cursor_grip = target_xyz, target_quat, target_grip
+        return np.concatenate(segments, axis=0), plan
+
+    def follow_ee_path(
+        self,
+        *,
+        arm: str,
+        waypoints: list[dict[str, Any]],
+        default_steps: int = 20,
+        ease: bool = True,
+    ) -> dict[str, Any]:
+        """Execute a whole planned end-effector path in one native chunk."""
+        arm = _require_arm(arm)
+        if not isinstance(waypoints, (list, tuple)) or not waypoints:
+            raise ValueError("waypoints must be a non-empty list")
+        if len(waypoints) > self._MAX_PATH_WAYPOINTS:
+            raise ValueError(
+                f"a path takes at most {self._MAX_PATH_WAYPOINTS} waypoints"
+            )
+        default_steps = int(default_steps)
+        if default_steps < 1 or default_steps > 200:
+            raise ValueError("default_steps must be between 1 and 200")
+        chunk, plan = self._plan_ee_path(arm, list(waypoints), default_steps, bool(ease))
+        execution = self._execute_chunk(chunk, policy=False)
+        pose_slice, grip_index = _ARM_SLICES[arm]
+        final = self._current_ee16()
+        final_pose = final[pose_slice]
+        goal_xyz = np.asarray(plan[-1]["xyz"], dtype=np.float64)
+        return {
+            **execution,
+            **self._completion(
+                requested=int(len(chunk)),
+                executed=execution["executed_actions"],
+                status=execution["episode_status"],
+            ),
+            "success": True,
+            "arm": arm,
+            "waypoints": plan,
+            "planned_steps": int(len(chunk)),
+            "final_eef_xyz": final_pose[:3].tolist(),
+            "final_eef_quat": final_pose[3:].tolist(),
+            "final_gripper": float(final[grip_index]),
+            "final_dist_m": float(np.linalg.norm(final_pose[:3] - goal_xyz)),
         }
 
     def move_delta(

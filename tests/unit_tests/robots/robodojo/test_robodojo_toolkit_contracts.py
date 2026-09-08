@@ -37,6 +37,8 @@ ANALYTIC_TOOLS = COMMON_TOOLS | {
     "render",
     "sample_world_xyz",
     "query_world_map",
+    "find_objects",
+    "follow_ee_path",
     "move_to",
     "move_delta",
     "rotate_wrist",
@@ -52,6 +54,7 @@ PRIMITIVE_METHODS = {
     "status",
     "finish",
     "vla_act",
+    "follow_ee_path",
     "move_to",
     "move_delta",
     "rotate_wrist",
@@ -109,6 +112,9 @@ class FakeRoboDojoPrimitives:
 
     def vla_act(self, **kwargs: Any) -> dict[str, Any]:
         return self._operation("vla_act", **kwargs)
+
+    def follow_ee_path(self, **kwargs: Any) -> dict[str, Any]:
+        return self._operation("follow_ee_path", **kwargs)
 
     def move_to(self, **kwargs: Any) -> dict[str, Any]:
         return self._operation("move_to", **kwargs)
@@ -209,6 +215,7 @@ def test_toolkit_constructs_and_captures_an_initial_observation(
         "view_env_state",
         "sample_world_xyz",
         "query_world_map",
+        "find_objects",
     }
     assert len(dumped) == 1
     assert dumped[0]["log"]["command"] == {"action": "reset"}
